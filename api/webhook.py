@@ -18,13 +18,22 @@ async def search_text(query):
         'ctx': 1
     }
     
+    print(f"Поиск запроса: {query}")
+    print(f"URL: {API_URL}")
+    print(f"Параметры: {params}")
+    
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(API_URL, params=params)
+            print(f"Статус ответа: {response.status_code}")
+            print(f"Содержимое ответа: {response.text[:500]}")
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            print(f"JSON результат: {result}")
+            return result
         except Exception as e:
             print(f"Ошибка при запросе: {e}")
+            print(f"Тип ошибки: {type(e)}")
             return None
 
 def format_results(data):
@@ -87,6 +96,8 @@ class handler(BaseHTTPRequestHandler):
             # Получаем текст сообщения и chat_id
             user_message = data['message']['text']
             chat_id = data['message']['chat']['id']
+            
+            print(f"Получено сообщение: '{user_message}' от chat_id: {chat_id}")
             
             # Запускаем асинхронную обработку
             asyncio.run(process_message(user_message, chat_id))
