@@ -1,9 +1,7 @@
 ﻿import json
 import httpx
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters
-from http.server import BaseHTTPRequestHandler
 import os
+from telegram import Bot
 
 # Получаем токен бота из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -41,51 +39,44 @@ def format_results(data):
     
     return '\n'.join(formatted_lines)
 
-async def handle_message(update: Update, context):
-    """Обрабатывает сообщения пользователей"""
-    user_message = update.message.text
+async def handler(request):
+    """Основная функция-обработчик для Vercel"""
+    if request.method == 'GET':
+        return {
+            'statusCode': 200,
+            'body': 'Bot is running!'
+        }
     
-    # Отправляем запрос на поиск
-    search_result = await search_text(user_message)
-    
-    # Форматируем и отправляем ответ
-    if search_result:
-        formatted_response = format_results(search_result)
-        await update.message.reply_text(formatted_response)
-    else:
-        await update.message.reply_text("Произошла ошибка при поиске")
-
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        
+    if request.method == 'POST':
         try:
-            # Создаем приложение
-            application = Application.builder().token(BOT_TOKEN).build()
+            # Получаем данные из webhook
+            body = await request.json()
             
-            # Добавляем обработчик сообщений
-            application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+            # Проверяем, есть ли сообщение
+            if 'message' not in body or 'text' not in body['message']:
+                return {'statusCode': 200, 'body': 'OK'}
             
-            # Обрабатываем webhook
-            update_data = json.loads(post_data.decode('utf-8'))
-            update = Update.de_json(update_data, application.bot)
+            # Получаем текст сообщения и chat_id
+            user_message = body['message']['text']
+            chat_id = body['message']['chat']['id']
             
-            # Обрабатываем обновление
-            import asyncio
-            asyncio.run(application.process_update(update))
+            # Отправляем запрос на поиск
+            search_result = await search_text(user_message)
             
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'OK')
+            # Форматируем ответ
+            if search_result:
+                formatted_response = format_results(search_result)
+            else:
+                formatted_response = "Произошла ошибка при поиске"
+            
+            # Отправляем ответ через Telegram API
+            bot = Bot(token=BOT_TOKEN)
+            await bot.send_message(chat_id=chat_id, text=formatted_response)
+            
+            return {'statusCode': 200, 'body': 'OK'}
             
         except Exception as e:
             print(f"Ошибка: {e}")
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(b'Error')
+            return {'statusCode': 500, 'body': 'Error'}
     
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'Bot is running!')
+    return {'statusCode': 405, 'body': 'Method not allowed'}
