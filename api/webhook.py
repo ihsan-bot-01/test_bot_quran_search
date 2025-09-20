@@ -1,6 +1,8 @@
-﻿import json
+﻿from http.server import BaseHTTPRequestHandler
+import json
 import httpx
 import os
+import asyncio
 from telegram import Bot
 
 # Получаем токен бота из переменных окружения
@@ -39,37 +41,6 @@ def format_results(data):
     
     return '\n'.join(formatted_lines)
 
-def handler(request):
-    """Основная функция-обработчик для Vercel"""
-    import asyncio
-    
-    if request.method == 'GET':
-        return 'Bot is running!'
-    
-    if request.method == 'POST':
-        try:
-            # Получаем данные из webhook
-            body = request.get_json()
-            
-            # Проверяем, есть ли сообщение
-            if not body or 'message' not in body or 'text' not in body['message']:
-                return 'OK'
-            
-            # Получаем текст сообщения и chat_id
-            user_message = body['message']['text']
-            chat_id = body['message']['chat']['id']
-            
-            # Запускаем асинхронную обработку
-            asyncio.run(process_message(user_message, chat_id))
-            
-            return 'OK'
-            
-        except Exception as e:
-            print(f"Ошибка: {e}")
-            return 'Error', 500
-    
-    return 'Method not allowed', 405
-
 async def process_message(user_message, chat_id):
     """Обрабатывает сообщение асинхронно"""
     # Отправляем запрос на поиск
@@ -84,3 +55,49 @@ async def process_message(user_message, chat_id):
     # Отправляем ответ через Telegram API
     bot = Bot(token=BOT_TOKEN)
     await bot.send_message(chat_id=chat_id, text=formatted_response)
+
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+    
+    def do_POST(self):
+        try:
+            length = int(self.headers.get("content-length", 0))
+            raw = self.rfile.read(length) if length else b""
+            
+            if not raw:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK")
+                return
+            
+            # Парсим JSON данные от Telegram
+            data = json.loads(raw.decode('utf-8'))
+            
+            # Проверяем, есть ли сообщение
+            if 'message' not in data or 'text' not in data['message']:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK")
+                return
+            
+            # Получаем текст сообщения и chat_id
+            user_message = data['message']['text']
+            chat_id = data['message']['chat']['id']
+            
+            # Запускаем асинхронную обработку
+            asyncio.run(process_message(user_message, chat_id))
+            
+            self.send_response(200)
+            self.send_header("content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"OK")
+            
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode("utf-8"))
