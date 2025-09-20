@@ -3,7 +3,11 @@ import json
 import httpx
 import os
 import asyncio
+import logging
 from telegram import Bot
+
+# Отключаем логирование httpx чтобы не светить токены
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Получаем токен бота из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -61,9 +65,27 @@ async def process_message(user_message, chat_id):
     else:
         formatted_response = "Произошла ошибка при поиске"
     
-    # Отправляем ответ через Telegram API
-    bot = Bot(token=BOT_TOKEN)
-    await bot.send_message(chat_id=chat_id, text=formatted_response)
+    # Проверяем наличие токена
+    if not BOT_TOKEN:
+        print("Ошибка: BOT_TOKEN не установлен")
+        return
+    
+    # Отправляем ответ через Telegram API (без логирования токена)
+    async with httpx.AsyncClient() as client:
+        telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': chat_id,
+            'text': formatted_response
+        }
+        try:
+            response = await client.post(telegram_url, json=payload)
+            print(f"Telegram API ответ: {response.status_code}")
+            if response.status_code == 401:
+                print("Ошибка: Неверный токен бота (401 Unauthorized)")
+            elif response.status_code != 200:
+                print(f"Telegram API ошибка: {response.text}")
+        except Exception as e:
+            print(f"Ошибка отправки в Telegram: {e}")
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -99,8 +121,12 @@ class handler(BaseHTTPRequestHandler):
             
             print(f"Получено сообщение: '{user_message}' от chat_id: {chat_id}")
             
-            # Запускаем асинхронную обработку
-            asyncio.run(process_message(user_message, chat_id))
+            # Запускаем асинхронную обработку с обработкой ошибок
+            try:
+                asyncio.run(process_message(user_message, chat_id))
+            except Exception as process_error:
+                print(f"Ошибка при обработке сообщения: {process_error}")
+                # Все равно возвращаем 200, чтобы Telegram не повторял запрос
             
             self.send_response(200)
             self.send_header("content-type", "text/plain; charset=utf-8")
